@@ -26,6 +26,48 @@
 
 using chip::to_underlying;
 
+#include <app/EventManagement.h>
+#include <app/InteractionModelEngine.h>
+#include <app/server/Server.h>
+#include <controller/InvokeInteraction.h>
+#include <controller/ReadInteraction.h>
+#include <messaging/ExchangeContext.h>
+#include <messaging/ExchangeMgr.h>
+
+using namespace chip;
+using namespace chip::app;
+
+static Messaging::ExchangeManager * gXMgr;
+static unsigned long long gTargetNodeId = 0;
+
+void HandleDeviceConnected(void * context, Messaging::ExchangeManager & exchangeMgr, const SessionHandle & sessionHandle)
+{
+    ChipLogProgress(DataManagement, "Connection established!");
+    auto onSuccess = [](const ConcreteDataAttributePath & attributePath, const auto & dataResponse) {
+        ChipLogProgress(NotSpecified, "Read attribute successful!");
+    };
+
+    auto onFailure = [](const ConcreteDataAttributePath * attributePath, CHIP_ERROR error) {
+        ChipLogError(NotSpecified, "Read attribute failed: %" CHIP_ERROR_FORMAT, error.Format());
+    };
+
+    [[maybe_unused]] auto x =
+        Controller::ReadAttribute<Clusters::OnOff::Attributes::OnOff::TypeInfo>(gXMgr, sessionHandle, 0x01, onSuccess, onFailure);
+    [[maybe_unused]] auto y = Controller::ReadAttribute<Clusters::LevelControl::Attributes::CurrentLevel::TypeInfo>(
+        gXMgr, sessionHandle, 0x01, onSuccess, onFailure);
+    [[maybe_unused]] auto z = Controller::ReadAttribute<Clusters::ColorControl::Attributes::CurrentHue::TypeInfo>(
+        gXMgr, sessionHandle, 0x01, onSuccess, onFailure);
+    // ...
+}
+
+void HandleDeviceConnectionFailure(void * context, const ScopedNodeId & peeerId, CHIP_ERROR err)
+{
+    //
+}
+
+Callback::Callback<OnDeviceConnected> gOnConnectedCallback(HandleDeviceConnected, NULL);
+Callback::Callback<OnDeviceConnectionFailure> gOnConnectionFailureCallback(HandleDeviceConnectionFailure, NULL);
+
 class LockAppCommandHandler
 {
 public:
@@ -81,6 +123,13 @@ LockAppCommandHandler * LockAppCommandHandler::FromJSON(const char * json)
         params = value["Params"];
     }
     auto commandName = value["Cmd"].asString();
+
+    if (params.isMember("NodeId"))
+    {
+        ChipLogDetail(NotSpecified, "Found NodeId in the control JSON");
+        gTargetNodeId = strtoull(params["NodeId"].asString().c_str(), nullptr, 16);
+    }
+
     return chip::Platform::New<LockAppCommandHandler>(std::move(commandName), std::move(params));
 }
 
@@ -170,6 +219,12 @@ void LockAppCommandHandler::HandleCommand(intptr_t context)
         LockManager::Instance().Unlock(endpointId, NullNullable, NullNullable, pin, error, OperationSourceEnum(operationSource));
         VerifyOrExit(error == OperationErrorEnum::kUnspecified,
                      ChipLogError(NotSpecified, "Lock App: Unlock error received: %u", to_underlying(error)));
+    }
+    else if (self->mCommandName == "RunScan")
+    {
+        gXMgr = chip::app::InteractionModelEngine::GetInstance()->GetExchangeManager();
+        Server::GetInstance().GetCASESessionManager()->FindOrEstablishSession(ScopedNodeId(gTargetNodeId, 0x1),
+                                                                              &gOnConnectedCallback, &gOnConnectionFailureCallback);
     }
     else
     {
