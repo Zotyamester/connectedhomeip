@@ -55,6 +55,8 @@ void HandleDeviceConnected(void * context, Messaging::ExchangeManager & exchange
         gXMgr, sessionHandle, 0x01, onSuccess, onFailure);
     [[maybe_unused]] auto z = Controller::ReadAttribute<Clusters::ColorControl::Attributes::CurrentHue::TypeInfo>(
         gXMgr, sessionHandle, 0x01, onSuccess, onFailure);
+    [[maybe_unused]] auto w = Controller::ReadAttribute<Clusters::DoorLock::Attributes::LockState::TypeInfo>(
+        gXMgr, sessionHandle, 0x01, onSuccess, onFailure);
     // ...
 }
 
